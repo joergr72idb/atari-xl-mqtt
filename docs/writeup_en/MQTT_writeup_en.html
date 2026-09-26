@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Atari XL MQTT write-up</title>
+<style>
+  @page { size: A4; margin: 22mm 20mm; }
+  body { font-family: "Liberation Sans", Arial, Helvetica, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #111; }
+  h1 { font-size: 15pt; margin: 0 0 10pt; }
+  h2 { font-size: 12pt; margin: 16pt 0 6pt; }
+  p { margin: 0 0 8pt; }
+  a { color: #1f5a8a; }
+  code, pre { font-family: "Liberation Mono", "DejaVu Sans Mono", monospace; font-size: 9.5pt; }
+  pre { background: #f4f4f4; border: 1px solid #ddd; padding: 8pt 10pt; margin: 6pt 0 10pt; white-space: pre-wrap; }
+  table { border-collapse: collapse; margin: 4pt 0 12pt; width: 100%; page-break-inside: avoid; }
+  th, td { border-bottom: 1px solid #ddd; padding: 2.5pt 6pt; text-align: left; vertical-align: top; }
+  th { background: #eee; font-weight: bold; }
+  td:nth-child(1) { width: 12%; white-space: nowrap; }
+  td:nth-child(2) { width: 28%; font-family: "Liberation Mono", monospace; font-size: 9.5pt; }
+  .note { font-size: 9.5pt; color: #444; }
+  .keep { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<h1>Publishing an MQTT topic to Home Assistant from Atari BASIC via FujiNet</h1>
+
+<p>You can do quite a lot with FujiNet, and the N: device offers many of the possibilities.</p>
+
+<p>I needed a little distraction, so I wanted to be able to set an MQTT topic from the Atari.</p>
+
+<p>The N: device (<a href="https://fujinetwifi.github.io/fujinet-docs/features/network-device/">https://fujinetwifi.github.io/fujinet-docs/features/network-device/</a>)
+supports many protocols, among them HTTP, HTTPS, FTP, SSH, … and TCP.</p>
+
+<p>If you ask Gemini, it claims that the N: device includes an MQTT protocol, which is simply not true. Gemini and I
+then settled on TCP and "recreated" MQTT on top of it a bit.</p>
+
+<p>The test environment is a running Home Assistant (HAOS) with a Mosquitto broker running as an "app" (formerly
+add-on). It's also useful to have MQTT Explorer running, either as an app in Home Assistant or somewhere else on the
+network.</p>
+
+<p>The basic principle is fairly simple:</p>
+
+<p>Put the IP address of the Mosquitto broker into line 10.</p>
+
+<p>The login "testuser" with the password "atari" is encoded as decimal byte values. Create this user either in Home
+Assistant or in the Mosquitto app. Alternatively, an existing user can be encoded into the BASIC listing instead (the
+length bytes then have to be adjusted as well, see below). After creating the user, check with MQTT Explorer that it
+can log in.</p>
+
+<div class="keep">
+<h2>Step 1: connecting (MQTT CONNECT)</h2>
+
+<p>Lines 140 to 149 send the following individual bytes. All values are decimal. Length fields in MQTT are two bytes
+(high byte, low byte).</p>
+
+<table>
+<tr><th>Position</th><th>Value (dec.)</th><th>Meaning</th></tr>
+<tr><td>1</td><td>16</td><td>Packet type CONNECT: the client wants to connect</td></tr>
+<tr><td>2</td><td>29</td><td>Remaining length: exactly 29 more bytes follow</td></tr>
+<tr><td>3–4</td><td>0, 4</td><td>Length of the protocol name: 4 bytes follow</td></tr>
+<tr><td>5–8</td><td>77, 81, 84, 84</td><td>"MQTT"</td></tr>
+<tr><td>9</td><td>4</td><td>MQTT protocol level (4 = version 3.1.1)</td></tr>
+<tr><td>10</td><td>194</td><td>Connect flags (binary 11000010): username and password follow, clean session</td></tr>
+<tr><td>11–12</td><td>0, 60</td><td>Keep-alive: keep the connection open for 60 seconds</td></tr>
+<tr><td>13–14</td><td>0, 0</td><td>Client ID length 0: the broker assigns an ID itself</td></tr>
+<tr><td>15–16</td><td>0, 8</td><td>The username is 8 bytes long</td></tr>
+<tr><td>17–24</td><td>116, 101, 115, 116, 117, 115, 101, 114</td><td>"testuser"</td></tr>
+<tr><td>25–26</td><td>0, 5</td><td>The password is 5 bytes long</td></tr>
+<tr><td>27–31</td><td>97, 116, 97, 114, 105</td><td>"atari"</td></tr>
+</table>
+</div>
+
+<p class="note">Using a different user: besides the letters, change the two length fields (positions 15–16 and
+25–26) and the remaining length in position 2. It is always 10 + 2 + 2 + username length + 2 + password length;
+for testuser/atari: 10 + 2 + 2 + 8 + 2 + 5 = 29.</p>
+
+<h2>Step 2: publishing the topic (MQTT PUBLISH)</h2>
+
+<p>I'd like to set the topic <code>AtariXL</code> on the broker. Later, this topic can be defined as a sensor in Home
+Assistant's configuration.yaml and used in automations, e.g. to switch some lamp on or off.</p>
+
+<p>For this, the RETURN key works as a toggle switch: each press switches the value between "ON" and "OFF".</p>
+
+<p>Of course you could also read the fire button of a joystick instead…</p>
+
+<p>The payloads are in lines 190–193 and 220–223. Both are sent with the RETAIN flag set, so the broker keeps the last
+value and Home Assistant sees the current state even if it connects later.</p>
+
+<div class="keep">
+<p><b>Topic "AtariXL" with payload "OFF" (lines 190 to 193)</b></p>
+<table>
+<tr><th>Position</th><th>Value (dec.)</th><th>Meaning</th></tr>
+<tr><td>1</td><td>49</td><td>Packet type PUBLISH (48) + RETAIN flag (1), QoS 0: a topic is being sent</td></tr>
+<tr><td>2</td><td>12</td><td>Remaining length: 12 more bytes follow</td></tr>
+<tr><td>3–4</td><td>0, 7</td><td>The topic name is 7 characters long</td></tr>
+<tr><td>5–11</td><td>65, 116, 97, 114, 105, 88, 76</td><td>"AtariXL"</td></tr>
+<tr><td>12–14</td><td>79, 70, 70</td><td>Payload "OFF"</td></tr>
+</table>
+</div>
+
+<div class="keep">
+<p><b>Topic "AtariXL" with payload "ON" (lines 220 to 223)</b></p>
+<table>
+<tr><th>Position</th><th>Value (dec.)</th><th>Meaning</th></tr>
+<tr><td>1</td><td>49</td><td>Packet type PUBLISH (48) + RETAIN flag (1), QoS 0: a topic is being sent</td></tr>
+<tr><td>2</td><td>11</td><td>Remaining length: 11 more bytes follow</td></tr>
+<tr><td>3–4</td><td>0, 7</td><td>The topic name is 7 characters long</td></tr>
+<tr><td>5–11</td><td>65, 116, 97, 114, 105, 88, 76</td><td>"AtariXL"</td></tr>
+<tr><td>12–13</td><td>79, 78</td><td>Payload "ON"</td></tr>
+</table>
+</div>
+
+<h2>The complete program</h2>
+
+<p>Sorry, I haven't done anything in Atari BASIC for 30 years… The listing is unchanged from the original, including
+its German comments and screen texts (see the translations below it).</p>
+
+<pre>5 DIM IP$(60)
+10 IP$="N:TCP://&lt;IP-Adresse einsetzen&gt;:1883/"
+20 STATE=0
+30 PRINT "MQTT-TCP BEREIT. RETURN DRUECKEN!"
+40 REM *** TASTATUR-SPEICHER ABFRAGEN ***
+50 TASTE=PEEK(764)
+60 IF TASTE&lt;&gt;12 THEN GOTO 50
+70 REM *** SPEICHER ZURUECKSETZEN ***
+75 POKE 764,255
+80 STATE=1-STATE:PRINT "SENDE STATE: ";
+90 IF STATE=1 THEN PRINT "ON"
+100 IF STATE=0 THEN PRINT "OFF"
+110 REM *** VERBINDUNG OEFFNEN ***
+120 OPEN #1,12,0,IP$
+130 REM *** STEP 1: MQTT CONNECT (TESTUSER / ATARI) ***
+140 PUT #1,16:PUT #1,29:PUT #1,0:PUT #1,4
+141 PUT #1,77:PUT #1,81:PUT #1,84:PUT #1,84
+142 PUT #1,4:PUT #1,194:PUT #1,0:PUT #1,60
+143 PUT #1,0:PUT #1,0:PUT #1,0:PUT #1,8
+146 PUT #1,116:PUT #1,101:PUT #1,115:PUT #1,116
+147 PUT #1,117:PUT #1,115:PUT #1,101:PUT #1,114
+148 PUT #1,0:PUT #1,5:PUT #1,97:PUT #1,116
+149 PUT #1,97:PUT #1,114:PUT #1,105
+150 REM *** STEP 2: MQTT PUBLISH SENDER ***
+170 IF STATE=1 THEN GOTO 210
+180 REM *** PAYLOAD OFF (RETAINED) ***
+190 PUT #1,49:PUT #1,12:PUT #1,0:PUT #1,7
+191 PUT #1,65:PUT #1,116:PUT #1,97:PUT #1,114
+192 PUT #1,105:PUT #1,88:PUT #1,76
+193 PUT #1,79:PUT #1,70:PUT #1,70
+200 GOTO 230
+210 REM *** PAYLOAD ON (RETAINED) ***
+220 PUT #1,49:PUT #1,11:PUT #1,0:PUT #1,7
+221 PUT #1,65:PUT #1,116:PUT #1,97:PUT #1,114
+222 PUT #1,105:PUT #1,88:PUT #1,76
+223 PUT #1,79:PUT #1,78
+230 REM *** VERBINDUNG SCHLIESSEN ***
+240 CLOSE #1
+250 REM *** KLEINE PAUSE GEGEN DOPPEL-TRIGGERS ***
+270 FOR I=1 TO 200:NEXT I
+280 GOTO 40</pre>
+
+<div class="keep">
+<table>
+<tr><th>Line</th><th>German text</th><th>English</th></tr>
+<tr><td>10</td><td>&lt;IP-Adresse einsetzen&gt;</td><td>insert the broker's IP address here</td></tr>
+<tr><td>30</td><td>MQTT-TCP BEREIT. RETURN DRUECKEN!</td><td>MQTT-TCP ready. Press RETURN!</td></tr>
+<tr><td>40</td><td>TASTATUR-SPEICHER ABFRAGEN</td><td>poll the keyboard register (764; 12 = RETURN)</td></tr>
+<tr><td>70</td><td>SPEICHER ZURUECKSETZEN</td><td>reset the register (255 = no key)</td></tr>
+<tr><td>80</td><td>SENDE STATE:</td><td>sending state:</td></tr>
+<tr><td>110</td><td>VERBINDUNG OEFFNEN</td><td>open the connection</td></tr>
+<tr><td>230</td><td>VERBINDUNG SCHLIESSEN</td><td>close the connection</td></tr>
+<tr><td>250</td><td>KLEINE PAUSE GEGEN DOPPEL-TRIGGERS</td><td>short pause against double triggers</td></tr>
+</table>
+</div>
+
+<h2>Home Assistant</h2>
+
+<p>Home Assistant's configuration.yaml still needs to be extended:</p>
+
+<pre>mqtt:
+  # ... your existing MQTT entries ...
+  binary_sensor:
+    - name: "Atari XL Button"
+      state_topic: "AtariXL"
+      payload_on: "ON"
+      payload_off: "OFF"
+      device_class: "power"</pre>
+
+<p>After restarting Home Assistant Core, the new sensor is available and can be used in automations.</p>
+
+<h2>Notes and outlook</h2>
+
+<p>The Atari FujiNet approach can also serve as a template for other devices. I can well imagine that it would also
+work with the Schneider CPC and the M4; maybe I'll try that in the next few days. For the C64, Meatloaf is also a good
+option.</p>
+
+<p>In principle, it works with anything that can send individual bytes over TCP.</p>
+
+<p>Everything can still be improved. For example, the Atari doesn't yet notice the acknowledgement (CONNACK) that
+Mosquitto sends back, and it closes the connection without an MQTT DISCONNECT, which the broker tolerates. I built it
+on a notebook with a HAOS VM, the Atari XL emulator Altirra (<a href="https://virtualdub.org/altirra.html">https://virtualdub.org/altirra.html</a>)
+and a FujiNet emulator in the form of a matching bridge from the FujiNet project
+(<a href="https://github.com/FujiNetWIFI/fujinet-emulator-bridge">https://github.com/FujiNetWIFI/fujinet-emulator-bridge</a>).
+The real test was done with an unmodified Atari XL + FujiNet. Our Home Assistant has been running since 2021…</p>
+
+<p>What can you do with it now? Good question… Build an 8-bit control panel for Home Assistant for the retro computer
+room? A back channel would be nice too, to show the status on the Atari XL.</p>
+
+<p>Created with the help of AI (Gemini). The guide was mostly written "by hand" and may therefore contain errors 😊…</p>
+
+<p>Contact: joergr via the forum "<a href="https://forum.classic-computing.de/forum/">https://forum.classic-computing.de/forum/</a>"
+of the VzEkC e.V. (Verein zum Erhalt klassischer Computer e.V., the association for the preservation of classic
+computers).</p>
+
+<h2>Corrections compared to the German original</h2>
+
+<ul class="note">
+  <li>ON table: position 2 means "11 bytes follow" (the original said 12). The program was already correct.</li>
+  <li>ON table heading: "Topic 'AtariXL' with payload 'ON'" (the original said "Payload 'AtariXL'").</li>
+  <li>Two-byte length fields are now shown as pairs, and the meaning of 16 (CONNECT), 49 (PUBLISH + RETAIN) and
+    194 (username + password + clean session) is spelled out.</li>
+  <li>The byte sequences of the listing were checked on 2026-09-27 against a local Mosquitto 2 broker: the connection
+    was accepted, and both ON and OFF were stored as retained values and delivered to a later subscriber.</li>
+</ul>
+
+</body>
+</html>

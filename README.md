@@ -18,6 +18,8 @@ atari/mqtt_toggle.bas          Atari BASIC program (the client)
 homeassistant/configuration.yaml   binary_sensor snippet for Home Assistant
 docs/protocol.md               byte-by-byte breakdown of the MQTT packets
 docs/MQTT_writeup_de.pdf       original write-up (German), source of this project
+docs/MQTT_writeup_en.pdf       English version of the write-up, with corrections
+docs/writeup_en/               its HTML source (print to PDF with headless Chrome)
 ```
 
 ## Setup
